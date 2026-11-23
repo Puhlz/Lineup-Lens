@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lineup Lookup</title>
+<style>
+  :root {
+    --bg: #0f1115; --card: #181b22; --line: #2a2f3a; --text: #f1f3f7;
+    --muted: #9aa3b2; --accent: #1ed760; --warn: #f5b84b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 640px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 1.6rem; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .drop {
+    display: block; border: 2px dashed var(--line); border-radius: 14px;
+    padding: 28px 16px; text-align: center; cursor: pointer; background: var(--card);
+    transition: border-color .15s, background .15s;
+  }
+  .drop:hover, .drop.over { border-color: var(--accent); }
+  .drop strong { display: block; font-size: 1.05rem; }
+  .drop span { color: var(--muted); font-size: .9rem; }
+  .drop input { display: none; }
+  .opts { margin: 12px 2px; color: var(--muted); font-size: .9rem; display: flex; gap: 8px; align-items: center; }
+  .preview { display: none; margin: 16px 0; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); }
+  .preview img { display: block; width: 100%; max-height: 320px; object-fit: contain; background: #000; }
+  .progress { display: none; margin: 16px 0; }
+  .bar { height: 8px; background: var(--line); border-radius: 99px; overflow: hidden; }
+  .bar > div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  .status { color: var(--muted); font-size: .9rem; margin-top: 6px; }
+  .results { display: none; margin-top: 20px; }
+  .results h2 { font-size: 1.1rem; margin: 0 0 4px; }
+  .hint { color: var(--muted); font-size: .85rem; margin: 0 0 12px; }
+  ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  li {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 10px 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  }
+  li.check { border-color: var(--warn); }
+  .name { flex: 1 1 140px; font-weight: 600; color: var(--text); text-decoration: none; word-break: break-word; }
+  .name:hover { color: var(--accent); text-decoration: underline; }
+  .name input { width: 100%; font: inherit; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
+  .tag { font-size: .72rem; color: var(--warn); border: 1px solid var(--warn); border-radius: 99px; padding: 0 7px; }
+  .links { display: flex; gap: 6px; flex-wrap: wrap; }
+  a.pill, button {
+    font: inherit; font-size: .8rem; color: var(--text); background: transparent; cursor: pointer;
+    border: 1px solid var(--line); border-radius: 99px; padding: 4px 10px; text-decoration: none;
+  }
+  a.pill:hover, button:hover { border-color: var(--accent); color: var(--accent); }
+  a.pill.spotify { background: var(--accent); color: #04130a; border-color: var(--accent); font-weight: 600; }
+  button.icon { padding: 4px 9px; color: var(--muted); }
+  .add { display: flex; gap: 8px; margin-top: 12px; }
+  .add input { flex: 1; font: inherit; background: var(--card); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; min-width: 0; }
+  .add button { border-radius: 10px; padding: 8px 14px; }
+  details { margin-top: 14px; color: var(--muted); font-size: .9rem; }
+  textarea { width: 100%; min-height: 140px; margin: 8px 0; font: inherit; background: var(--card); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+  .error { color: #ff8a8a; margin-top: 12px; display: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Lineup Lookup</h1>
+  <p class="sub">Upload a festival lineup poster. Tap any name to find the artist on Spotify.</p>
+
+  <label class="drop" id="drop">
+    <strong>Choose a photo or drop it here</strong>
+    <span>JPG or PNG of a lineup poster</span>
+    <input type="file" id="file" accept="image/*">
+  </label>
+  <label class="opts">
+    <input type="checkbox" id="invert" checked>
+    Also scan inverted (helps with light text on dark posters; slower)
+  </label>
+
+  <div class="preview" id="preview"><img id="previewImg" alt="Uploaded lineup"></div>
+
+  <div class="progress" id="progress">
+    <div class="bar"><div id="barFill"></div></div>
+    <div class="status" id="status">Starting…</div>
+  </div>
+  <div class="error" id="error"></div>
+
+  <section class="results" id="results">
+    <h2><span id="count">0</span> names found</h2>
+    <p class="hint">OCR isn't perfect. Names outlined in yellow are low-confidence; tap ✎ to fix a typo.</p>
+    <ul id="list"></ul>
+    <form class="add" id="addForm">
+      <input id="addInput" placeholder="Add a missing artist" autocomplete="off">
+      <button type="submit">Add</button>
+    </form>
+    <details>
+      <summary>Edit all as text</summary>
+      <textarea id="bulk" placeholder="One name per line"></textarea>
+      <button type="button" id="applyBulk">Apply</button>
+    </details>
+  </section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const fileInput = $('file'), drop = $('drop');
+  let artists = []; // {name, conf}
+
+  /* ---------- Image preprocessing ---------- */
+  function loadImage(file) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error('Could not read that image.'));
+      img.src = URL.createObjectURL(file);
+    });
+  }
+
+  // Grayscale + contrast stretch, optional inversion, scaled to a good OCR size.
+  function prepare(img, invert) {
+    const target = 2200;
+    let scale = target / Math.max(img.naturalWidth, img.naturalHeight);
+    scale = Math.min(Math.max(scale, 1), 3);
+    if (img.naturalWidth * scale > 3200) scale = 3200 / img.naturalWidth;
+    const w = Math.round(img.naturalWidth * scale), h = Math.round(img.naturalHeight * scale);
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(img, 0, 0, w, h);
+    const data = ctx.getImageData(0, 0, w, h);
+    const px = data.data, hist = new Array(256).fill(0), n = w * h;
+    for (let i = 0; i < px.length; i += 4) {
+      const g = (0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]) | 0;
+      px[i] = g; hist[g]++;
+    }
+    let acc = 0, lo = 0, hi = 255;
+    for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc >= n * 0.02) { lo = v; break; } }
+    acc = 0;
+    for (let v = 255; v >= 0; v--) { acc += hist[v]; if (acc >= n * 0.02) { hi = v; break; } }
+    const range = Math.max(hi - lo, 1);
+    for (let i = 0; i < px.length; i += 4) {
+      let g = Math.min(255, Math.max(0, ((px[i] - lo) * 255) / range));
+      if (invert) g = 255 - g;
+      px[i] = px[i + 1] = px[i + 2] = g;
+      px[i + 3] = 255;
+    }
+    ctx.putImageData(data, 0, 0);
+    return c;
+  }
+
+  /* ---------- Name extraction ---------- */
+  const STOP = /\b(www|http|https|com|tickets?|presale|on sale|sale|tba|and more|more|presents?|festival|fest|lineup|line-up|line up|admission|parking|camping|vip|gates|doors|info|sponsored|sponsors?|powered by|live|music|stage|pass|passes|weekend|friday|saturday|sunday|monday|tuesday|wednesday|thursday|fri|sat|sun|jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)\b/i;
+
+  function tidyName(s) {
+    s = s.replace(/[^\p{L}\p{N}\s&'’.\-!$+]/gu, ' ').replace(/\s+/g, ' ').trim();
+    s = s.replace(/^[^\p{L}\p{N}$]+|[^\p{L}\p{N}!$.]+$/gu, '').trim();
+    return s;
+  }
+  function titleCase(s) {
+    const letters = s.replace(/[^\p{L}]/gu, '');
+    if (letters.length > 3 && letters === letters.toUpperCase()) {
+      return s.toLowerCase().replace(/(^|[\s\-(])(\p{L})/gu, (m, a, b) => a + b.toUpperCase());
+    }
+    return s;
+  }
+  function isPlausible(s) {
+    if (s.length < 2 || s.length > 40) return false;
+    const letters = (s.match(/\p{L}/gu) || []).length;
+    if (letters < 2) return false;
+    if (letters / s.length < 0.6) return false;
+    if (/^\d+$/.test(s)) return false;
+    if (STOP.test(s) && s.split(' ').length <= 2) return false;
+    // reject gibberish: long run of consonants or a single odd-case jumble
+    if (/[bcdfghjklmnpqrstvwxz]{6,}/i.test(s)) return false;
+    return true;
+  }
+  const key = (s) => s.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+  function lev(a, b) {
+    const m = a.length, n = b.length;
+    if (!m) return n; if (!n) return m;
+    let prev = Array.from({ length: n + 1 }, (_, j) => j);
+    for (let i = 1; i <= m; i++) {
+      const cur = [i];
+      for (let j = 1; j <= n; j++) {
+        cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      }
+      prev = cur;
+    }
+    return prev[n];
+  }
+  function isDup(list, name) {
+    const k = key(name);
+    return list.some((a) => {
+      const k2 = key(a.name);
+      if (k === k2) return true;
+      const tol = Math.floor(Math.min(k.length, k2.length) * 0.15);
+      return tol > 0 && lev(k, k2) <= tol;
+    });
+  }
+
+  function extractFrom(data, minConf) {
+    let lines = data.lines && data.lines.length
+      ? data.lines.map((l) => ({ text: l.text, conf: l.confidence }))
+      : (data.text || '').split('\n').map((t) => ({ text: t, conf: data.confidence || 60 }));
+    const out = [];
+    for (const l of lines) {
+      if (l.conf < minConf) continue;
+      const parts = l.text.split(/[•·|\/\\–—~*●■▪◆►▶]+|\s[-–—]\s|\s{3,}/);
+      for (const p of parts) {
+        const name = tidyName(p);
+        if (isPlausible(name)) out.push({ name: titleCase(name), conf: l.conf });
+      }
+    }
+    return out;
+  }
+
+  /* ---------- OCR ---------- */
+  async function scan(file) {
+    resetUI();
+    $('progress').style.display = 'block';
+    const img = await loadImage(file);
+    $('previewImg').src = img.src;
+    $('preview').style.display = 'block';
+
+    const passes = $('invert').checked ? [false, true] : [false];
+    setProgress(0, 'Loading OCR engine…');
+    let current = 0;
+    const worker = await Tesseract.createWorker('eng', 1, {
+      logger: (m) => {
+        if (m.status === 'recognizing text') {
+          setProgress((current + m.progress) / passes.length, `Reading text… (pass ${current + 1} of ${passes.length})`);
+        } else if (m.progress !== undefined && m.status) {
+          setProgress(0.02, m.status.charAt(0).toUpperCase() + m.status.slice(1) + '…');
+        }
+      },
+    });
+    await worker.setParameters({ tessedit_pageseg_mode: '11', preserve_interword_spaces: '1' });
+
+    const found = [];
+    try {
+      for (current = 0; current < passes.length; current++) {
+        const canvas = prepare(img, passes[current]);
+        const { data } = await worker.recognize(canvas);
+        for (const c of extractFrom(data, 45)) {
+          if (!isDup(found, c.name)) found.push(c);
+        }
+      }
+    } finally {
+      await worker.terminate();
+    }
+    setProgress(1, 'Done');
+    setTimeout(() => ($('progress').style.display = 'none'), 600);
+    artists = found;
+    render();
+    if (!found.length) showError("Couldn't find any names. Try a sharper, straighter photo, or add names manually below.");
+    $('results').style.display = 'block';
+  }
+
+  /* ---------- UI ---------- */
+  function setProgress(p, text) {
+    $('barFill').style.width = Math.round(p * 100) + '%';
+    $('status').textContent = text;
+  }
+  function showError(msg) { const e = $('error'); e.textContent = msg; e.style.display = 'block'; }
+  function resetUI() {
+    $('error').style.display = 'none';
+    $('results').style.display = 'none';
+  }
+
+  const enc = encodeURIComponent;
+  const links = (n) => ({
+    spotify: `https://open.spotify.com/search/${enc(n)}/artists`,
+    apple: `https://music.apple.com/search?term=${enc(n)}`,
+    youtube: `https://music.youtube.com/search?q=${enc(n)}`,
+    bandcamp: `https://bandcamp.com/search?q=${enc(n)}&item_type=b`,
+  });
+
+  function el(tag, props, ...kids) {
+    const e = document.createElement(tag);
+    Object.assign(e, props || {});
+    kids.forEach((k) => e.append(k));
+    return e;
+  }
+  function pill(href, text, cls) {
+    return el('a', { href, target: '_blank', rel: 'noopener noreferrer', className: 'pill ' + (cls || ''), textContent: text });
+  }
+
+  function render() {
+    const ul = $('list');
+    ul.textContent = '';
+    $('count').textContent = artists.length;
+    artists.forEach((a, i) => {
+      const L = links(a.name);
+      const li = el('li');
+      if (a.conf < 65) li.classList.add('check');
+      const nameLink = el('a', { href: L.spotify, target: '_blank', rel: 'noopener noreferrer', className: 'name', textContent: a.name });
+      const edit = el('button', { type: 'button', className: 'icon', title: 'Edit name', textContent: '✎' });
+      const del = el('button', { type: 'button', className: 'icon', title: 'Remove', textContent: '✕' });
+      edit.onclick = () => {
+        const input = el('input', { value: a.name });
+        const box = el('span', { className: 'name' }, input);
+        li.replaceChild(box, nameLink);
+        input.focus(); input.select();
+        const done = () => {
+          const v = tidyName(input.value);
+          if (v) { a.name = v; a.conf = 100; }
+          render();
+        };
+        input.onblur = done;
+        input.onkeydown = (e) => { if (e.key === 'Enter') input.blur(); };
+      };
+      del.onclick = () => { artists.splice(i, 1); render(); };
+      const row = el('div', { className: 'links' },
+        pill(L.spotify, 'Spotify', 'spotify'),
+        pill(L.apple, 'Apple'),
+        pill(L.youtube, 'YouTube'),
+        pill(L.bandcamp, 'Bandcamp'));
+      li.append(nameLink);
+      if (a.conf < 65) li.append(el('span', { className: 'tag', textContent: 'check' }));
+      li.append(row, edit, del);
+      ul.append(li);
+    });
+    $('bulk').value = artists.map((a) => a.name).join('\n');
+  }
+
+  $('addForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const v = tidyName($('addInput').value);
+    if (v && !isDup(artists, v)) { artists.push({ name: v, conf: 100 }); render(); }
+    $('addInput').value = '';
+  });
+  $('applyBulk').addEventListener('click', () => {
+    const names = $('bulk').value.split('\n').map(tidyName).filter(Boolean);
+    const next = [];
+    names.forEach((n) => { if (!isDup(next, n)) next.push({ name: n, conf: 100 }); });
+    artists = next;
+    render();
+  });
+
+  function handleFile(f) {
+    if (!f || !f.type.startsWith('image/')) return showError('Please choose an image file.');
+    scan(f).catch((err) => { $('progress').style.display = 'none'; showError(err.message || 'Something went wrong.'); });
+  }
+  fileInput.addEventListener('change', () => handleFile(fileInput.files[0]));
+  ['dragenter', 'dragover'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('over'); }));
+  ['dragleave', 'drop'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
+  drop.addEventListener('drop', (e) => handleFile(e.dataTransfer.files[0]));
+})();
+</script>
+</body>
+</html>
